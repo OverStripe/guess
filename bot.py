@@ -1,5 +1,4 @@
 import random
-import requests
 import os
 from dotenv import load_dotenv
 from telegram import Update
@@ -11,6 +10,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = os.getenv("OWNER_ID")
 
 # In-memory data storage
+CHARACTER_LIST = [
+    "Naruto Uzumaki", "Sasuke Uchiha", "Sakura Haruno", "Kakashi Hatake"
+]
+SUDO_USERS = set()
 users_data = {}
 
 # Function to get user data
@@ -28,27 +31,17 @@ def get_user_data(user_id, first_name, last_name):
         }
     return users_data[user_id]
 
-# Fetch a random anime character using Jikan API
+# Fetch a random character from the list
 def fetch_random_character():
-    while True:
-        try:
-            url = "https://api.jikan.moe/v4/characters?page=1&limit=1000"
-            response = requests.get(url)
-            if response.status_code == 200:
-                characters = response.json().get("data", [])
-                if characters:
-                    character = random.choice(characters)
-                    return character["name"]
-        except Exception:
-            pass  # Ignore any errors and retry fetching
+    return random.choice(CHARACTER_LIST)
 
-# Function to generate a fill-in-the-blanks hint like "g_ku"
+# Generate a hint for the character name
 def generate_hint(character):
-    words = character.split(" ")  # Split into words
+    words = character.split(" ")
     hinted_words = []
     for word in words:
         hinted_word = "".join([c if random.random() > 0.5 else "_" for c in word])
-        if hinted_word == "_" * len(word):  # Ensure at least one character is visible
+        if hinted_word == "_" * len(word):
             hinted_word = random.choice(word) + "_" * (len(word) - 1)
         hinted_words.append(hinted_word)
     return " ".join(hinted_words)
@@ -58,12 +51,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = update.effective_user.first_name
     last_name = update.effective_user.last_name or ""
     user_id = update.effective_chat.id
-    get_user_data(user_id, first_name, last_name)  # Initialize user data
+    get_user_data(user_id, first_name, last_name)
 
     await update.message.reply_text(
-        "👋 Welcome to **Philo Guesser**! 🎮\n"
+        "👋 Welcome to **Naruto Guess Bot**! 🎮\n"
         "✨ I will send anime characters for you to guess. 🎉\n"
-        "🔥 You have 5️⃣ attempts per character. Start guessing! 🧐"
+        "🔥 You have 5️⃣ attempts per character. Start guessing! 🧐\n"
+        "🍀 Test your knowledge of the Naruto universe and aim for the top streak!"
     )
     await send_new_character(update, context)
 
@@ -74,16 +68,14 @@ async def send_new_character(update: Update, context: ContextTypes.DEFAULT_TYPE)
     last_name = update.effective_user.last_name or ""
     user_data = get_user_data(user_id, first_name, last_name)
 
-    # Fetch a new character
     character = fetch_random_character()
     user_data["current_character"] = character.lower()
     user_data["guess_count"] = 0
 
-    # Send the first hint
     hint = generate_hint(character)
     await update.message.reply_text(f"🧩 Guess the anime character: **{hint}**")
 
-# Guess handler
+# Guess command
 async def guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
     first_name = update.effective_user.first_name
@@ -125,6 +117,37 @@ async def guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚡ Try again! Attempts left: {remaining_attempts}."
             )
 
+# Upload command
+async def upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_chat.id
+    if str(user_id) != OWNER_ID and user_id not in SUDO_USERS:
+        await update.message.reply_text("🚫 You do not have permission to upload character names.")
+        return
+
+    character_name = " ".join(context.args)
+    if not character_name:
+        await update.message.reply_text("⚠️ Please provide a character name to upload.")
+        return
+
+    CHARACTER_LIST.append(character_name)
+    await update.message.reply_text(f"✅ Character '{character_name}' has been added successfully!")
+
+# Addsudo command
+async def addsudo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_chat.id
+    if str(user_id) != OWNER_ID:
+        await update.message.reply_text("🚫 Only the owner can add sudo users.")
+        return
+
+    try:
+        sudo_id = int(context.args[0])
+    except (IndexError, ValueError):
+        await update.message.reply_text("⚠️ Please provide a valid user ID to add as sudo.")
+        return
+
+    SUDO_USERS.add(sudo_id)
+    await update.message.reply_text(f"✅ User ID {sudo_id} has been added as a sudo user!")
+
 # Profile command
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_chat.id
@@ -147,10 +170,7 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ No players yet! Be the first to play! 🎮")
         return
 
-    # Sort users by coins in descending order
     sorted_users = sorted(users_data.values(), key=lambda x: x["coins"], reverse=True)[:10]
-
-    # Generate leaderboard
     leaderboard = []
     for i, user in enumerate(sorted_users):
         first_name = user["first_name"]
@@ -161,39 +181,17 @@ async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     leaderboard_text = "\n".join(leaderboard)
     await update.message.reply_text(f"🏆 **Top Players**:\n{leaderboard_text}")
 
-# Admin-only broadcast command
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if str(update.effective_chat.id) != OWNER_ID:
-        await update.message.reply_text("🚫 You do not have permission to use this command.")
-        return
-
-    message = " ".join(context.args)
-    if not message:
-        await update.message.reply_text("⚠️ Please provide a message to broadcast.")
-        return
-
-    for user_id in users_data.keys():
-        try:
-            await context.bot.send_message(chat_id=user_id, text=f"📢 **Broadcast**: {message}")
-        except Exception:
-            pass  # Skip users who cannot be reached
-
-    await update.message.reply_text("✅ Message broadcasted successfully!")
-
 # Main function
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Command handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("top", top))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-
-    # Message handler for guesses
+    app.add_handler(CommandHandler("upload", upload))
+    app.add_handler(CommandHandler("addsudo", addsudo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, guess))
 
-    # Start the bot
     app.run_polling()
 
 if __name__ == "__main__":
