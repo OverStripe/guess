@@ -3,7 +3,7 @@ import requests
 import os
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Load environment variables from .env
 load_dotenv()
@@ -54,24 +54,24 @@ def generate_hint(character):
     return " ".join(hinted_words)
 
 # Start command
-def start(update: Update, context: CallbackContext):
-    first_name = update.message.from_user.first_name
-    last_name = update.message.from_user.last_name or ""
-    user_id = update.message.chat.id
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    first_name = update.effective_user.first_name
+    last_name = update.effective_user.last_name or ""
+    user_id = update.effective_chat.id
     get_user_data(user_id, first_name, last_name)  # Initialize user data
 
-    update.message.reply_text(
+    await update.message.reply_text(
         "👋 Welcome to **Philo Guesser**! 🎮\n"
         "✨ I will send anime characters for you to guess. 🎉\n"
         "🔥 You have 5️⃣ attempts per character. Start guessing! 🧐"
     )
-    send_new_character(update, context)
+    await send_new_character(update, context)
 
 # Send a new character to the user
-def send_new_character(update: Update, context: CallbackContext):
-    user_id = update.message.chat.id
-    first_name = update.message.from_user.first_name
-    last_name = update.message.from_user.last_name or ""
+async def send_new_character(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_chat.id
+    first_name = update.effective_user.first_name
+    last_name = update.effective_user.last_name or ""
     user_data = get_user_data(user_id, first_name, last_name)
 
     # Fetch a new character
@@ -81,18 +81,18 @@ def send_new_character(update: Update, context: CallbackContext):
 
     # Send the first hint
     hint = generate_hint(character)
-    update.message.reply_text(f"🧩 Guess the anime character: **{hint}**")
+    await update.message.reply_text(f"🧩 Guess the anime character: **{hint}**")
 
 # Guess handler
-def guess(update: Update, context: CallbackContext):
-    user_id = update.message.chat.id
-    first_name = update.message.from_user.first_name
-    last_name = update.message.from_user.last_name or ""
+async def guess(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_chat.id
+    first_name = update.effective_user.first_name
+    last_name = update.effective_user.last_name or ""
     user_data = get_user_data(user_id, first_name, last_name)
     guess = update.message.text.strip().lower()
 
     if not user_data["current_character"]:
-        send_new_character(update, context)
+        await send_new_character(update, context)
         return
 
     user_data["guess_count"] += 1
@@ -103,36 +103,36 @@ def guess(update: Update, context: CallbackContext):
         user_data["streak"] += 1
         user_data["top_streak"] = max(user_data["streak"], user_data["top_streak"])
 
-        update.message.reply_text(
+        await update.message.reply_text(
             f"🎉 **Correct!** You earned 💰 100 coins! 🎊\n"
             f"📈 Total coins: {user_data['coins']}\n"
             f"🔥 Streak: {user_data['streak']} 🔥"
         )
-        send_new_character(update, context)
+        await send_new_character(update, context)
     else:
         if user_data["guess_count"] >= 5:
             user_data["streak"] = 0
-            update.message.reply_text(
+            await update.message.reply_text(
                 f"❌ Out of attempts! 😔\n"
                 f"The correct answer was: **{user_data['current_character']}**. 🤓\n"
                 f"Let's try a new character! 🆕"
             )
-            send_new_character(update, context)
+            await send_new_character(update, context)
         else:
             remaining_attempts = 5 - user_data["guess_count"]
-            update.message.reply_text(
+            await update.message.reply_text(
                 f"❌ Wrong guess! 😅\n"
                 f"⚡ Try again! Attempts left: {remaining_attempts}."
             )
 
 # Profile command
-def profile(update: Update, context: CallbackContext):
-    user_id = update.message.chat.id
-    first_name = update.message.from_user.first_name
-    last_name = update.message.from_user.last_name or ""
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_chat.id
+    first_name = update.effective_user.first_name
+    last_name = update.effective_user.last_name or ""
     user_data = get_user_data(user_id, first_name, last_name)
 
-    update.message.reply_text(
+    await update.message.reply_text(
         f"🧑 **Profile**:\n"
         f"📛 Name: {first_name} {last_name}\n"
         f"💰 Coins: {user_data['coins']}\n"
@@ -142,9 +142,9 @@ def profile(update: Update, context: CallbackContext):
     )
 
 # Top command
-def top(update: Update, context: CallbackContext):
+async def top(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not users_data:
-        update.message.reply_text("⚠️ No players yet! Be the first to play! 🎮")
+        await update.message.reply_text("⚠️ No players yet! Be the first to play! 🎮")
         return
 
     # Sort users by coins in descending order
@@ -159,41 +159,42 @@ def top(update: Update, context: CallbackContext):
         leaderboard.append(f"{i + 1}. 🥇 {first_name} {last_name}: 💰 {coins} coins")
 
     leaderboard_text = "\n".join(leaderboard)
-    update.message.reply_text(f"🏆 **Top Players**:\n{leaderboard_text}")
+    await update.message.reply_text(f"🏆 **Top Players**:\n{leaderboard_text}")
 
 # Admin-only broadcast command
-def broadcast(update: Update, context: CallbackContext):
-    if str(update.message.chat.id) != OWNER_ID:
-        update.message.reply_text("🚫 You do not have permission to use this command.")
+async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if str(update.effective_chat.id) != OWNER_ID:
+        await update.message.reply_text("🚫 You do not have permission to use this command.")
         return
 
     message = " ".join(context.args)
     if not message:
-        update.message.reply_text("⚠️ Please provide a message to broadcast.")
+        await update.message.reply_text("⚠️ Please provide a message to broadcast.")
         return
 
     for user_id in users_data.keys():
-        context.bot.send_message(chat_id=user_id, text=f"📢 **Broadcast**: {message}")
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"📢 **Broadcast**: {message}")
+        except Exception:
+            pass  # Skip users who cannot be reached
 
-    update.message.reply_text("✅ Message broadcasted successfully!")
+    await update.message.reply_text("✅ Message broadcasted successfully!")
 
 # Main function
 def main():
-    updater = Updater(BOT_TOKEN)
-    dp = updater.dispatcher
+    app = Application.builder().token(BOT_TOKEN).build()
 
     # Command handlers
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("profile", profile))
-    dp.add_handler(CommandHandler("top", top))
-    dp.add_handler(CommandHandler("broadcast", broadcast))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("profile", profile))
+    app.add_handler(CommandHandler("top", top))
+    app.add_handler(CommandHandler("broadcast", broadcast))
 
     # Message handler for guesses
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, guess))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, guess))
 
     # Start the bot
-    updater.start_polling()
-    updater.idle()
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
